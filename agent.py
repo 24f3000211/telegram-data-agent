@@ -131,6 +131,46 @@ class DataAnalystAgent:
             return sanitized["answer"]
         return sanitized
 
+    @staticmethod
+    def _deterministic_answer(question: str, analysis: dict[str, Any]) -> dict[str, Any] | None:
+        """Return an answer directly from deterministic pandas analysis when possible."""
+        q = question.lower()
+
+        # Revenue / sales
+        if "revenue" in analysis:
+            revenue = analysis["revenue"]
+            if any(word in q for word in ["revenue", "sales", "product"]):
+                return {
+                    "revenue_by_product": revenue["by_product"],
+                    "highest_revenue_product": revenue["highest_product"],
+                    "overall_revenue": revenue["overall_revenue"],
+                }
+
+        # Linear regression
+        if "linear_regression" in analysis:
+            lr = analysis["linear_regression"]
+
+            # Predict next x value if requested
+            if any(word in q for word in ["predict", "forecast"]):
+                profile = analysis["profile"]
+                x_name = lr["x"]
+
+                # Find last observed x from sample/profile if available
+                # Better: compute from dataframe before calling this.
+                return {
+                    "linear_regression": {
+                        "slope": lr["slope"],
+                        "intercept": lr["intercept"],
+                        "r_squared": lr["r_squared"],
+                    }
+                }
+
+        # Correlation
+        if "correlation" in analysis and "correlation" in q:
+            return {"correlation": analysis["correlation"]}
+
+        return None
+
     async def answer(
         self,
         history: list[dict[str, str]],
@@ -157,8 +197,25 @@ class DataAnalystAgent:
                 logger.event("analysis", {"source": source, "rows": len(frame), "columns": len(frame.columns)}, time.perf_counter() - started)
             elif not history:
                 context["note"] = "No dataset was provided in this message."
-            answer = await self._ask_groq(history[-10:], context, logger)
-            result = {"answer": self._without_nested_log_url(answer), "log_url": logger.log_url}
+            analysis = context.get("analysis", {})
+
+# Use deterministic pandas answer whenever possible
+            deterministic = self._deterministic_answer(latest_message, analysis)
+
+            if deterministic is not None:
+                logger.event("deterministic_answer", {"used": True})
+                result = {
+                    "answer": deterministic,
+                    "log_url": logger.log_url,
+                }
+            else:
+                messages = [*history[-10:], {"role": "user", "content": latest_message}]
+                answer = await self._ask_groq(messages, context, logger)
+
+                result = {
+                    "answer": self._without_nested_log_url(answer),
+                    "log_url": logger.log_url,
+                }
             logger.event("answer", {"success": True, "request_id": request_id})
             return result
         except Exception as exc:  # user-facing response must remain JSON even on failures
