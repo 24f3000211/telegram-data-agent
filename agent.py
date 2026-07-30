@@ -19,6 +19,7 @@ from utils import extract_inline_csv, extract_inline_json, extract_urls, generat
 SYSTEM_PROMPT = """You are an expert data analyst. Return exactly one valid JSON object and no markdown.
 Use only the supplied conversation and dataset evidence. Never invent a dataset, values, columns, or computations.
 Give concise, directly useful answers. If evidence is insufficient, return a JSON answer describing the limitation.
+Never include a log_url field; the application adds the single log_url in its response envelope.
 Pandas analysis and DuckDB-compatible analysis may be used conceptually, but do not claim execution not supported by evidence."""
 
 
@@ -79,6 +80,17 @@ class DataAnalystAgent:
             return load_dataframe(inline_csv, inline=True), "inline_csv"
         return None, None
 
+    @staticmethod
+    def _without_nested_log_url(answer: Any) -> Any:
+        """Ensure the application response has exactly one, top-level ``log_url``."""
+        if not isinstance(answer, dict):
+            return answer
+        sanitized = dict(answer)
+        sanitized.pop("log_url", None)
+        if set(sanitized) == {"answer"}:
+            return sanitized["answer"]
+        return sanitized
+
     async def answer(
         self,
         history: list[dict[str, str]],
@@ -106,7 +118,7 @@ class DataAnalystAgent:
             elif not history:
                 context["note"] = "No dataset was provided in this message."
             answer = await self._ask_groq(history[-10:], context, logger)
-            result = {"answer": answer, "log_url": logger.log_url}
+            result = {"answer": self._without_nested_log_url(answer), "log_url": logger.log_url}
             logger.event("answer", {"success": True, "request_id": request_id})
             return result
         except Exception as exc:  # user-facing response must remain JSON even on failures

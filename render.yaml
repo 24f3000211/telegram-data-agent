@@ -10,14 +10,12 @@ services:
         sync: false
       - key: GROQ_API_KEY
         sync: false
-      - key: GITHUB_TOKEN
-        sync: false
       - key: GROQ_MODEL
         value: llama-3.3-70b-versatile
       - key: GROQ_BASE_URL
         value: https://api.groq.com/openai/v1
       - key: PUBLIC_BASE_LOG_URL
-        value: https://24f3000211.github.io/telegram-data-agent/logs
+        value: https://telegram-data-agent.onrender.com/logs
       - key: REQUEST_TIMEOUT_SECONDS
         value: "45"
       - key: MAX_DOWNLOAD_BYTES

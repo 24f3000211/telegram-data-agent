@@ -35,19 +35,15 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 
 For Telegram delivery, expose the port with a secure tunnel and register its HTTPS `/webhook` URL. Check `GET /health` for readiness. Local logs are exposed at `/logs/{filename}`; configure `PUBLIC_BASE_LOG_URL=https://your-domain/logs` so Telegram answers contain a reachable log URL.
 
-## Public audit logs with GitHub Pages
+## Logs served by the application
 
-Each completed Telegram request writes valid JSONL events to `logs/<run_id>.jsonl`. The bot then safely runs Git to commit and push that one file. Git errors are captured with Python logging and never interrupt a Telegram response. This runtime needs a clone with a configured `origin` remote and credentials that can push to the repository; local development can still run normally if publishing cannot authenticate. On Render, set `GITHUB_TOKEN` to a fine-grained GitHub token with repository **Contents: Read and write** access so the bot can push log commits.
-
-The `Publish Logs to GitHub Pages` workflow runs whenever `logs/` changes (and can also be started manually). It synchronizes `logs/` into `docs/logs/` with stale-file deletion, then commits only when the public copy changed. The workflow uses the repository's default branch and `contents: write` permission.
-
-Enable Pages once in GitHub: open **Settings** → **Pages**, choose **Deploy from a branch**, select the default branch, then select the **/docs** folder and save. Set the following value in `.env`, replacing the account and repository name if needed:
+Each completed Telegram request writes valid JSONL events to `logs/<run_id>.jsonl`. FastAPI serves the file directly at `/logs/<run_id>.jsonl`; no GitHub Actions, Git commits, or GitHub Pages configuration is required. Configure the deployed service URL in `.env`:
 
 ```text
-PUBLIC_BASE_LOG_URL=https://YOUR_USERNAME.github.io/telegram-data-agent/logs
+PUBLIC_BASE_LOG_URL=https://YOUR_RENDER_SERVICE.onrender.com/logs
 ```
 
-Published logs are then available at `https://YOUR_USERNAME.github.io/telegram-data-agent/logs/<run_id>.jsonl`. Logs can contain user messages and dataset-derived metadata, so use a private repository or remove sensitive values before enabling this public publishing flow.
+The returned URL format is `https://YOUR_RENDER_SERVICE.onrender.com/logs/<run_id>.jsonl`. Logs can contain user messages and dataset-derived metadata, so do not share their URLs publicly unless that data is safe to expose. Render free services have an ephemeral filesystem, so logs disappear when the service restarts or spins down.
 
 ## Data inputs and analysis
 
@@ -64,7 +60,7 @@ docker run --env-file .env -p 8000:8000 telegram-data-agent
 
 ## Render deployment
 
-This repository includes `render.yaml`. In the Render Dashboard, select **New** → **Blueprint**, connect this GitHub repository, and select the default branch. Render reads the Blueprint, builds the Docker service, and checks `GET /health` before marking it live. Supply `BOT_TOKEN`, `GROQ_API_KEY`, and `GITHUB_TOKEN` when prompted; `GITHUB_TOKEN` needs GitHub repository Contents read/write permission for public-log commits. Once live, register `https://<service>.onrender.com/webhook` with Telegram. Keep `PUBLIC_BASE_LOG_URL` pointed at the GitHub Pages URL from the public-log section.
+In the Render Dashboard, select **New** → **Web Service**, connect this repository, select the `main` branch, choose **Docker**, and select the **Free** instance type. Set the health-check path to `/health`, then add `BOT_TOKEN`, `GROQ_API_KEY`, and `PUBLIC_BASE_LOG_URL=https://<service>.onrender.com/logs`. Once live, register `https://<service>.onrender.com/webhook` with Telegram. The included `render.yaml` is optional and is not required for this manual free deployment.
 
 ## Google Cloud Run deployment
 
