@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
+import os
 import subprocess
 import threading
 from datetime import UTC, datetime
@@ -56,6 +58,18 @@ def append_event(log_path: str | Path, event: dict[str, Any]) -> None:
 
 def _run_git(*arguments: str) -> subprocess.CompletedProcess[str]:
     """Run Git in the repository and capture output for diagnostics."""
+    environment = os.environ.copy()
+    github_token = environment.get("GITHUB_TOKEN")
+    if github_token:
+        authorization = base64.b64encode(f"x-access-token:{github_token}".encode("utf-8")).decode("ascii")
+        environment.update(
+            {
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+                "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {authorization}",
+                "GIT_TERMINAL_PROMPT": "0",
+            }
+        )
     return subprocess.run(
         ["git", *arguments],
         cwd=REPOSITORY_ROOT,
@@ -64,6 +78,7 @@ def _run_git(*arguments: str) -> subprocess.CompletedProcess[str]:
         text=True,
         encoding="utf-8",
         errors="replace",
+        env=environment,
     )
 
 

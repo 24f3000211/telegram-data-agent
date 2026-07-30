@@ -37,7 +37,7 @@ For Telegram delivery, expose the port with a secure tunnel and register its HTT
 
 ## Public audit logs with GitHub Pages
 
-Each completed Telegram request writes valid JSONL events to `logs/<run_id>.jsonl`. The bot then safely runs Git to commit and push that one file. Git errors are captured with Python logging and never interrupt a Telegram response. This runtime needs a clone with a configured `origin` remote and credentials that can push to the repository; local development can still run normally if publishing cannot authenticate.
+Each completed Telegram request writes valid JSONL events to `logs/<run_id>.jsonl`. The bot then safely runs Git to commit and push that one file. Git errors are captured with Python logging and never interrupt a Telegram response. This runtime needs a clone with a configured `origin` remote and credentials that can push to the repository; local development can still run normally if publishing cannot authenticate. On Render, set `GITHUB_TOKEN` to a fine-grained GitHub token with repository **Contents: Read and write** access so the bot can push log commits.
 
 The `Publish Logs to GitHub Pages` workflow runs whenever `logs/` changes (and can also be started manually). It synchronizes `logs/` into `docs/logs/` with stale-file deletion, then commits only when the public copy changed. The workflow uses the repository's default branch and `contents: write` permission.
 
@@ -64,7 +64,7 @@ docker run --env-file .env -p 8000:8000 telegram-data-agent
 
 ## Render deployment
 
-Create a Web Service from the repository, choose Docker, add the variables from `.env.example`, and set `PUBLIC_BASE_LOG_URL` to `https://<service>.onrender.com/logs`. Once live, register `https://<service>.onrender.com/webhook` with Telegram.
+This repository includes `render.yaml`. In the Render Dashboard, select **New** → **Blueprint**, connect this GitHub repository, and select the default branch. Render reads the Blueprint, builds the Docker service, and checks `GET /health` before marking it live. Supply `BOT_TOKEN`, `GROQ_API_KEY`, and `GITHUB_TOKEN` when prompted; `GITHUB_TOKEN` needs GitHub repository Contents read/write permission for public-log commits. Once live, register `https://<service>.onrender.com/webhook` with Telegram. Keep `PUBLIC_BASE_LOG_URL` pointed at the GitHub Pages URL from the public-log section.
 
 ## Google Cloud Run deployment
 
