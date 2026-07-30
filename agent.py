@@ -31,6 +31,17 @@ class DataAnalystAgent:
         Path(self.settings.temp_dir).mkdir(parents=True, exist_ok=True)
         Path(self.settings.logs_dir).mkdir(parents=True, exist_ok=True)
 
+    @staticmethod
+    def _groq_error_detail(response: httpx.Response) -> str:
+        """Extract Groq's actionable error message without assuming a JSON body."""
+        try:
+            error = response.json().get("error", {})
+            if isinstance(error, dict) and isinstance(error.get("message"), str):
+                return error["message"]
+        except (json.JSONDecodeError, ValueError):
+            pass
+        return response.text.strip() or response.reason_phrase
+
     async def _ask_groq(self, messages: list[dict[str, str]], context: dict[str, Any], logger: RunLogger) -> Any:
         if not self.settings.groq_api_key:
             raise RuntimeError("GROQ_API_KEY is not configured")
@@ -52,6 +63,14 @@ class DataAnalystAgent:
                     f"{self.settings.groq_base_url.rstrip('/')}/chat/completions",
                     headers={"Authorization": f"Bearer {self.settings.groq_api_key}"}, json=payload,
                 )
+                if response.status_code == httpx.codes.BAD_REQUEST:
+                    fallback_payload = dict(payload)
+                    fallback_payload.pop("response_format", None)
+                    logger.event("llm_retry", {"reason": "Groq rejected JSON response mode"})
+                    response = await client.post(
+                        f"{self.settings.groq_base_url.rstrip('/')}/chat/completions",
+                        headers={"Authorization": f"Bearer {self.settings.groq_api_key}"}, json=fallback_payload,
+                    )
                 response.raise_for_status()
             content = response.json()["choices"][0]["message"]["content"]
             parsed = json.loads(content)
@@ -59,6 +78,10 @@ class DataAnalystAgent:
                 raise ValueError("Groq returned an unsupported JSON value")
             logger.event("llm_response", {"type": type(parsed).__name__}, time.perf_counter() - started)
             return parsed
+        except httpx.HTTPStatusError as exc:
+            detail = self._groq_error_detail(exc.response)
+            logger.event("llm_response", {"status": exc.response.status_code, "error": detail}, time.perf_counter() - started)
+            raise RuntimeError(f"Groq API request failed ({exc.response.status_code}): {detail}") from exc
         except (httpx.HTTPError, KeyError, ValueError, json.JSONDecodeError) as exc:
             logger.event("llm_response", {"error": str(exc)}, time.perf_counter() - started)
             raise RuntimeError(f"LLM request failed: {exc}") from exc

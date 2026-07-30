@@ -137,6 +137,30 @@ def run_pandas_analysis(frame: pd.DataFrame, question: str) -> dict[str, Any]:
                     "r_squared": round(1 - residual_sum / total_sum, 6) if total_sum else None,
                     "observations": int(len(clean)),
                 }
+    if re.search(r"revenue|sales", question, re.I):
+        normalized_columns = {str(column).strip().lower(): column for column in frame.columns}
+        product_column = normalized_columns.get("product")
+        price_column = normalized_columns.get("price")
+        quantity_column = normalized_columns.get("quantity")
+        if product_column is not None and price_column is not None and quantity_column is not None:
+            revenue_frame = frame[[product_column, price_column, quantity_column]].copy()
+            revenue_frame["_revenue"] = (
+                pd.to_numeric(revenue_frame[price_column], errors="coerce")
+                * pd.to_numeric(revenue_frame[quantity_column], errors="coerce")
+            )
+            grouped_revenue = revenue_frame.groupby(product_column, dropna=False)["_revenue"].sum(min_count=1).dropna()
+            if not grouped_revenue.empty:
+                revenue_by_product = {
+                    str(product): float(revenue)
+                    for product, revenue in grouped_revenue.sort_values(ascending=False).items()
+                }
+                highest_product = grouped_revenue.idxmax()
+                result["revenue"] = {
+                    "by_product": revenue_by_product,
+                    "highest_product": str(highest_product),
+                    "highest_revenue": float(grouped_revenue.loc[highest_product]),
+                    "overall_revenue": float(grouped_revenue.sum()),
+                }
     mentioned = [column for column in frame.columns if re.search(re.escape(str(column)), question, re.I)]
     if mentioned:
         column = mentioned[0]
