@@ -49,10 +49,29 @@ def looks_like_csv(value: str) -> bool:
     return len(next(csv.reader([lines[0]], dialect))) > 1
 
 
+def _find_csv_block(text: str) -> str | None:
+    """Return the longest contiguous block of text that appears to be CSV/TSV."""
+    lines = [line for line in text.splitlines() if line.strip()]
+    best_block: str | None = None
+    best_length = 0
+    for start in range(0, len(lines) - 1):
+        for end in range(start + 2, len(lines) + 1):
+            block = "\n".join(lines[start:end])
+            if looks_like_csv(block):
+                length = end - start
+                if length > best_length or (length == best_length and len(block) > len(best_block or "")):
+                    best_block = block
+                    best_length = length
+    return best_block
+
+
 def extract_inline_csv(text: str) -> str | None:
     """Find the first fenced or complete message body that resembles CSV/TSV."""
-    candidates = extract_code_blocks(text) + [text]
-    return next((candidate for candidate in candidates if looks_like_csv(candidate)), None)
+    candidates = extract_code_blocks(text)
+    for candidate in candidates:
+        if looks_like_csv(candidate):
+            return candidate
+    return _find_csv_block(text)
 
 
 def extract_inline_json(text: str) -> str | None:
