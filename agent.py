@@ -42,6 +42,23 @@ class DataAnalystAgent:
             pass
         return response.text.strip() or response.reason_phrase
 
+    @staticmethod
+    def _parse_llm_json(content: str) -> Any:
+        """Parse model output as JSON, tolerating markdown/code fences and leading text."""
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            cleaned = re.sub(r"```(?:json)?\s*", "", content)
+            cleaned = cleaned.replace("```", "")
+            decoder = json.JSONDecoder()
+            for match in re.finditer(r"[\{\[]", cleaned):
+                try:
+                    obj, _ = decoder.raw_decode(cleaned[match.start():])
+                    return obj
+                except json.JSONDecodeError:
+                    continue
+            raise
+
     async def _ask_groq(self, messages: list[dict[str, str]], context: dict[str, Any], logger: RunLogger) -> Any:
         if not self.settings.groq_api_key:
             raise RuntimeError("GROQ_API_KEY is not configured")
@@ -73,7 +90,7 @@ class DataAnalystAgent:
                     )
                 response.raise_for_status()
             content = response.json()["choices"][0]["message"]["content"]
-            parsed = json.loads(content)
+            parsed = self._parse_llm_json(content)
             if not isinstance(parsed, (dict, list, str, int, float, bool)) and parsed is not None:
                 raise ValueError("Groq returned an unsupported JSON value")
             logger.event("llm_response", {"type": type(parsed).__name__}, time.perf_counter() - started)
