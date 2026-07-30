@@ -1,6 +1,6 @@
 # Telegram Data Analyst Agent
 
-A webhook-based Telegram bot that ingests tabular data, produces auditable local analyses, and asks Grok for a JSON-only answer. Every Telegram reply is exactly one JSON object with `answer` and `log_url`.
+A webhook-based Telegram bot that ingests tabular data, produces auditable local analyses, and asks Groq for a JSON-only answer. Every Telegram reply is exactly one JSON object with `answer` and `log_url`.
 
 ## Installation
 
@@ -15,7 +15,7 @@ pip install -r requirements.txt
 copy .env.example .env
 ```
 
-Set `BOT_TOKEN` (from BotFather) and `GROK_API_KEY` in `.env`. `GROK_MODEL` defaults to `grok-4-latest` and `GROK_BASE_URL` defaults to `https://api.x.ai/v1`.
+Set `BOT_TOKEN` (from BotFather) and `GROQ_API_KEY` in `.env`. `GROQ_MODEL` defaults to `llama-3.3-70b-versatile` and `GROQ_BASE_URL` defaults to `https://api.groq.com/openai/v1`.
 
 ## Telegram setup
 
@@ -35,9 +35,23 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 
 For Telegram delivery, expose the port with a secure tunnel and register its HTTPS `/webhook` URL. Check `GET /health` for readiness. Local logs are exposed at `/logs/{filename}`; configure `PUBLIC_BASE_LOG_URL=https://your-domain/logs` so Telegram answers contain a reachable log URL.
 
+## Public audit logs with GitHub Pages
+
+Each completed Telegram request writes valid JSONL events to `logs/<run_id>.jsonl`. The bot then safely runs Git to commit and push that one file. Git errors are captured with Python logging and never interrupt a Telegram response. This runtime needs a clone with a configured `origin` remote and credentials that can push to the repository; local development can still run normally if publishing cannot authenticate.
+
+The `Publish Logs to GitHub Pages` workflow runs whenever `logs/` changes (and can also be started manually). It synchronizes `logs/` into `docs/logs/` with stale-file deletion, then commits only when the public copy changed. The workflow uses the repository's default branch and `contents: write` permission.
+
+Enable Pages once in GitHub: open **Settings** → **Pages**, choose **Deploy from a branch**, select the default branch, then select the **/docs** folder and save. Set the following value in `.env`, replacing the account and repository name if needed:
+
+```text
+PUBLIC_BASE_LOG_URL=https://YOUR_USERNAME.github.io/telegram-data-agent/logs
+```
+
+Published logs are then available at `https://YOUR_USERNAME.github.io/telegram-data-agent/logs/<run_id>.jsonl`. Logs can contain user messages and dataset-derived metadata, so use a private repository or remove sensitive values before enabling this public publishing flow.
+
 ## Data inputs and analysis
 
-Messages can include CSV/TSV or JSON in a fenced block, public URLs for CSV, TSV, XLS/XLSX, JSON, or ZIP archives containing CSV/JSON, or an uploaded Telegram document in any of those formats. The bot profiles data, computes numeric summaries, optional correlation, common top/bottom rows and frequencies, and supplies the verified context to Grok. The `analysis` module also exposes safe DuckDB SELECT/WITH execution for application extensions.
+Messages can include CSV/TSV or JSON in a fenced block, public URLs for CSV, TSV, XLS/XLSX, JSON, or ZIP archives containing CSV/JSON, or an uploaded Telegram document in any of those formats. The bot profiles data, computes numeric summaries, optional correlation, common top/bottom rows and frequencies, and supplies the verified context to Groq. The `analysis` module also exposes safe DuckDB SELECT/WITH execution for application extensions.
 
 Conversation state is retained per chat and limited to the latest 10 messages. JSONL logs capture `received`, `download`, `analysis`, LLM, and final-answer events.
 
@@ -70,6 +84,6 @@ curl http://localhost:8000/health
 
 ## Architecture
 
-`Telegram -> FastAPI /webhook -> app conversation store -> DataAnalystAgent -> ingestion/analysis -> Grok -> JSON reply`
+`Telegram -> FastAPI /webhook -> app conversation store -> DataAnalystAgent -> ingestion/analysis -> Groq -> JSON reply`
 
 The agent is deliberately conservative: it never executes user-supplied Python or arbitrary SQL, rejects oversized downloads, and returns structured JSON errors for malformed datasets, download failures, and LLM failures.

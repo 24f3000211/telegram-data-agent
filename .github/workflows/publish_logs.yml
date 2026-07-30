@@ -1,0 +1,42 @@
+name: Publish Logs to GitHub Pages
+
+on:
+  push:
+    paths:
+      - "logs/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-logs-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - name: Synchronize public logs
+        run: |
+          mkdir -p docs/logs logs
+          rsync -a --delete logs/ docs/logs/
+
+      - name: Commit and push public logs
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if git diff --quiet -- docs/logs; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/logs
+          git commit -m "Publish logs to GitHub Pages"
+          git push origin "HEAD:${DEFAULT_BRANCH}"

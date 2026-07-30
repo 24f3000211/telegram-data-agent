@@ -1,4 +1,4 @@
-"""Orchestration for ingestion, analysis, Grok reasoning, and final response."""
+"""Orchestration for ingestion, analysis, Groq reasoning, and final response."""
 
 from __future__ import annotations
 
@@ -30,12 +30,12 @@ class DataAnalystAgent:
         Path(self.settings.temp_dir).mkdir(parents=True, exist_ok=True)
         Path(self.settings.logs_dir).mkdir(parents=True, exist_ok=True)
 
-    async def _ask_grok(self, messages: list[dict[str, str]], context: dict[str, Any], logger: RunLogger) -> Any:
-        if not self.settings.grok_api_key:
-            raise RuntimeError("GROK_API_KEY is not configured")
+    async def _ask_groq(self, messages: list[dict[str, str]], context: dict[str, Any], logger: RunLogger) -> Any:
+        if not self.settings.groq_api_key:
+            raise RuntimeError("GROQ_API_KEY is not configured")
         started = time.perf_counter()
         payload = {
-            "model": self.settings.grok_model,
+            "model": self.settings.groq_model,
             "temperature": 0,
             "response_format": {"type": "json_object"},
             "messages": [
@@ -44,18 +44,18 @@ class DataAnalystAgent:
                 {"role": "system", "content": "Verified local analysis context: " + json.dumps(context, default=str)},
             ],
         }
-        logger.event("llm_request", {"model": self.settings.grok_model})
+        logger.event("llm_request", {"model": self.settings.groq_model})
         try:
             async with httpx.AsyncClient(timeout=self.settings.request_timeout_seconds) as client:
                 response = await client.post(
-                    f"{self.settings.grok_base_url.rstrip('/')}/chat/completions",
-                    headers={"Authorization": f"Bearer {self.settings.grok_api_key}"}, json=payload,
+                    f"{self.settings.groq_base_url.rstrip('/')}/chat/completions",
+                    headers={"Authorization": f"Bearer {self.settings.groq_api_key}"}, json=payload,
                 )
                 response.raise_for_status()
             content = response.json()["choices"][0]["message"]["content"]
             parsed = json.loads(content)
             if not isinstance(parsed, (dict, list, str, int, float, bool)) and parsed is not None:
-                raise ValueError("Grok returned an unsupported JSON value")
+                raise ValueError("Groq returned an unsupported JSON value")
             logger.event("llm_response", {"type": type(parsed).__name__}, time.perf_counter() - started)
             return parsed
         except (httpx.HTTPError, KeyError, ValueError, json.JSONDecodeError) as exc:
@@ -87,7 +87,7 @@ class DataAnalystAgent:
     ) -> dict[str, Any]:
         """Produce the exact Telegram response envelope for one message."""
         request_id = generate_id()
-        logger = RunLogger(JsonlLogBackend(self.settings.logs_dir, self.settings.public_base_log_url))
+        logger = RunLogger(JsonlLogBackend(self.settings.logs_dir, self.settings.public_base_log_url, request_id))
         logger.event("received", {"request_id": request_id, "history_messages": len(history)})
         try:
             if dataset_path is not None:
@@ -105,10 +105,12 @@ class DataAnalystAgent:
                 logger.event("analysis", {"source": source, "rows": len(frame), "columns": len(frame.columns)}, time.perf_counter() - started)
             elif not history:
                 context["note"] = "No dataset was provided in this message."
-            answer = await self._ask_grok(history[-10:], context, logger)
+            answer = await self._ask_groq(history[-10:], context, logger)
             result = {"answer": answer, "log_url": logger.log_url}
             logger.event("answer", {"success": True, "request_id": request_id})
             return result
         except Exception as exc:  # user-facing response must remain JSON even on failures
             logger.event("answer", {"success": False, "request_id": request_id, "error": str(exc)})
             return {"answer": {"error": str(exc)}, "log_url": logger.log_url}
+        finally:
+            logger.finish_log()
